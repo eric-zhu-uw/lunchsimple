@@ -10,27 +10,32 @@ Note 3: I don't do any active trading with Wealthsimple, so I have no idea if bu
 ## Getting Started
 
 ### Prerequisites
-To run Lunchsimple, you'll need:
+To install Lunchsimple, you'll need:
 - at least Python 3.12
+- `pipx` (recommended)
 - a functioning and accessible system keyring
   - should be true for most people, [read more](https://pypi.org/project/keyring/) about keyring access if you have issues
 
 ### Installing
-You can install Lunchsimple from your terminal with:
+You can install Lunchsimple from your terminal using `pipx` with:
+```commandline
+pipx install lunchsimple
+```
+
+Alternatively, without `pipx` you can try to use plain 'ol `pip`:
 ```commandline
 pip install lunchsimple
 ```
 
-Alternatively, you can use `pipx` to run Lunchsimple without installing, like:
-```commandline
-pipx lunchsimple
-```
+However, doing so may require you to run as `sudo` which isn't recommended.
 
 ### Logging In
 You'll need to first log in with your Wealthsimple credentials:
 ```commandline
 lunchsimple login
 ```
+
+Your login information is then stored locally on your system's keyring.
 
 ### Configuring
 You must tell Lunchsimple which Wealthsimple accounts belong to which Lunch Money assets.
