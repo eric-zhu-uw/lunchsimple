@@ -11,5 +11,9 @@ pkgs.mkShell {
     python312Packages.pip
   ];
 
+  shellHook = ''
+    . .venv/bin/activate
+  '';
+
   LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib";
 }
