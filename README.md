@@ -3,10 +3,6 @@ Lunchsimple syncs your Wealthsimple activity with your Lunch Money budget.
 
 Note: this project uses unofficial Wealthsimple APIs, which may be revoked at any time.
 
-Note 2: this project has only been tested on Linux, but should work on all platforms (let me know).
-
-Note 3: I don't do any active trading with Wealthsimple, so I have no idea if buying and selling activity imports properly.
-
 ## Getting Started
 
 ### Prerequisites
@@ -72,6 +68,7 @@ There's some things that would be nice to have:
 - automatic Lunch Money asset creation
 - test coverage
 - optimized/faster transaction syncing
+- better descriptions of trades
 
 ## Contributing
 Know Python? Want to improve Lunchsimple? Submit patches and let's chat.
