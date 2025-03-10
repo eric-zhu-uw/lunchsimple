@@ -252,6 +252,9 @@ def sync(
             )
 
             for wealthsimple_activity in wealthsimple_activities:
+                # Take the first 75 characters as per Lunch Money's API restriction
+                external_id = wealthsimple_activity["canonicalId"][:75]
+
                 date = datetime.fromisoformat(
                     wealthsimple_activity["occurredAt"]
                 ).date()
@@ -283,7 +286,7 @@ def sync(
 
                 # TODO: Don't make a request per transaction
                 transaction = TransactionInsertObject(
-                    external_id=wealthsimple_activity["canonicalId"],
+                    external_id=external_id,
                     notes=notes,
                     amount=f"{'' if wealthsimple_activity['amountSign'] == 'positive' else '-'}"
                     + wealthsimple_activity["amount"],
