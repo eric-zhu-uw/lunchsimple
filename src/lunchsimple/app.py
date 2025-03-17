@@ -167,9 +167,14 @@ def configure(
     # Render Lunch Money assets table
     table = Table("", "Lunch Money Asset")
     for index, lunch_money_asset in enumerate(lunch_money_assets):
+        if institution := lunch_money_asset.institution_name:
+            institution = institution + " "
+        else:
+            institution = ""
+
         table.add_row(
             f"[green]{string.ascii_uppercase[index]}[/green]",
-            lunch_money_asset.institution_name + " " + lunch_money_asset.name,
+            institution + lunch_money_asset.name,
         )
 
     console.print(table)
