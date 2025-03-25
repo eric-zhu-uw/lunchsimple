@@ -225,6 +225,10 @@ def sync(
             "Warning: dates far into the past may not work properly.",
         ),
     ] = None,
+    apply_rules: Annotated[
+        bool,
+        typer.Option(help="Whether or not to apply transaction rules."),
+    ] = True,
 ):
     """
     Pull transactions from your Wealthsimple account and add them to Lunch Money.
@@ -304,7 +308,9 @@ def sync(
 
                 try:
                     lunch.insert_transactions(
-                        transactions=transaction, debit_as_negative=True
+                        transactions=transaction,
+                        debit_as_negative=True,
+                        apply_rules=apply_rules,
                     )
                 except LunchMoneyHTTPError as e:
                     # TODO: Think of way not to thrash API with transactions that already exist
