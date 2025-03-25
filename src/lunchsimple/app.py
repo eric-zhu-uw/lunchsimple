@@ -9,6 +9,7 @@ import keyring
 from lunchable import LunchMoney, TransactionInsertObject
 from lunchable.exceptions import LunchMoneyHTTPError
 import typer
+from lunchable.models import AssetsObject
 from rich.console import Console
 from rich.progress import track
 from rich.table import Table
@@ -29,6 +30,21 @@ console = Console()
 err_console = Console(stderr=True)
 
 keyring_service_name = APP_NAME
+
+
+def _get_asset_display_name(lunch_money_asset: AssetsObject):
+    """
+    Helper method to get the display name of an asset.
+    """
+    if display_name := lunch_money_asset.display_name:
+        display_name = display_name
+    else:
+        if institution := lunch_money_asset.institution_name:
+            display_name = institution + " " + lunch_money_asset.name
+        else:
+            display_name = lunch_money_asset.name
+
+    return display_name
 
 
 @dataclass
@@ -167,14 +183,9 @@ def configure(
     # Render Lunch Money assets table
     table = Table("", "Lunch Money Asset")
     for index, lunch_money_asset in enumerate(lunch_money_assets):
-        if institution := lunch_money_asset.institution_name:
-            institution = institution + " "
-        else:
-            institution = ""
-
         table.add_row(
             f"[green]{string.ascii_uppercase[index]}[/green]",
-            institution + lunch_money_asset.name,
+            _get_asset_display_name(lunch_money_asset),
         )
 
     console.print(table)
@@ -200,7 +211,7 @@ def configure(
                 account_map[wealthsimple_account["id"]] = lunch_money_asset.id
 
                 console.print(
-                    f"Linked {wealthsimple_account['description']} to {lunch_money_asset.institution_name} {lunch_money_asset.name}",
+                    f"Linked {wealthsimple_account['description']} to {_get_asset_display_name(lunch_money_asset)}",
                     style="green",
                 )
             case ["DONE"] | ["done"]:
