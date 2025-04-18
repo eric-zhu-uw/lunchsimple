@@ -284,9 +284,11 @@ def sync(
                 if date < start_date:
                     continue
 
+                # Handle purchases
                 if name := wealthsimple_activity["spendMerchant"]:
                     payee = name
                     notes = ""
+                # Handle deposits and withdrawals
                 elif (
                     wealthsimple_activity["type"] in ["DEPOSIT", "WITHDRAWAL"]
                     and wealthsimple_activity["subType"] == "AFT"
@@ -294,6 +296,14 @@ def sync(
                 ):
                     payee = name
                     notes = ""
+                # Handle e-transfers
+                elif wealthsimple_activity["subType"] == "E_TRANSFER":
+                    payee = (
+                        wealthsimple_activity["eTransferName"]
+                        or wealthsimple_activity["eTransferEmail"]
+                    )
+                    notes = "Interac e-Transfer"
+                # Handle whatever else
                 else:
                     payee = "Wealthsimple"
                     notes = wealthsimple_activity["description"]
