@@ -45,8 +45,6 @@ Your login information is then stored locally on your system's keyring.
 
 You must tell Lunchsimple which Wealthsimple accounts belong to which Lunch Money assets.
 
-**It is recommended that you create a test budget to use with Lunchsimple the first time to ensure that you see the transactions that you expect.**
-
 First, go to the [Accounts page](https://my.lunchmoney.app/accounts) in Lunch Money and create a new account for each Wealthsimple account you want to sync with.
 
 Then, go to the [Developers page](https://my.lunchmoney.app/developers) in Lunch Money and generate an Access Token by clicking **Request New Access Token**.
@@ -74,16 +72,6 @@ You can also pass a date to start syncing from:
 ```commandline
 lunchsimple sync --start-date "2024-12-15"
 ```
-
-## Roadmap
-
-There's some things that would be nice to have:
-
-- asset balance syncing
-- automatic Lunch Money asset creation
-- test coverage
-- optimized/faster transaction syncing
-- better descriptions of trades
 
 ## Contributing
 
