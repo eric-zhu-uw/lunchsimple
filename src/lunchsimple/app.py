@@ -1,3 +1,4 @@
+import re
 import json
 import string
 from dataclasses import dataclass, asdict
@@ -266,7 +267,7 @@ def sync(
     console.print(f"Starting transaction sync since {start_date.strftime('%Y-%m-%d')}.")
 
     # Gather transactions to insert
-    insert_transactions: list[TransactionInsertObject] = []
+    transactions: list[TransactionInsertObject] = []
     wealthsimple_accounts = ws.get_accounts()
     for wealthsimple_account in track(
         wealthsimple_accounts, description="[red]Syncing..."
@@ -349,26 +350,60 @@ def sync(
                         recurring_id=None,
                         tags=None,
                     )
-                    insert_transactions.append(transaction)
+                    transactions.append(transaction)
 
+    _insert_transactions(transactions, lunch, apply_rules)
+
+
+def _insert_transactions(
+    transactions: list[TransactionInsertObject],
+    lunch: LunchMoney,
+    apply_rules: bool,
+):
+    """
+    Bulk-insert transactions, removing any existing transactions.
+    """
     # Insert transactions in bulk
-    if len(insert_transactions):
+    if len(transactions):
         try:
             ids = lunch.insert_transactions(
-                transactions=insert_transactions,
+                transactions=transactions,
                 debit_as_negative=True,
                 apply_rules=apply_rules,
             )
             console.print(f"[green]Imported {len(ids)} transaction(s)![/green]")
         except LunchMoneyHTTPError as e:
+            # Handle any existing transactions that slipped through the cracks
             if "already exists" in str(e):
-                err_console.print(
-                    "[red]You may be querying for too many transactions, try a less distant start_date."
-                )
-                raise e
+                # Extract external_id from server response
+                pattern = r"Key\s*\([^)]+\)\s*=\s*\(([^,]+),[^)]+\)"
+                match = re.search(pattern, str(e))
+                if match:
+                    external_id = match.group(1)
+
+                    # Find the problematic transaction
+                    skip_index = -1
+                    for index, transaction in enumerate(transactions):
+                        if transaction.external_id == external_id:
+                            skip_index = index
+
+                    if skip_index >= 0:
+                        # Remove transaction from list
+                        _ = transactions.pop(skip_index)
+
+                        # Re-attempt to insert transactions
+                        # TODO: Cache these "bad" transactions somewhere to save on future network requests
+                        _insert_transactions(transactions, lunch, apply_rules)
+                    else:
+                        err_console.print(
+                            "[red] Unable to skip existing transactions. Bailing..."
+                        )
+                        raise e
+                else:
+                    err_console.print("[red] Unable to detect external_id. Bailing...")
+                    raise e
             else:
                 raise e
-
     else:
         console.print("No new transactions to import.")
 
