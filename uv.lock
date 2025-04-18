@@ -352,7 +352,7 @@ requires-dist = [
     { name = "ruff", specifier = ">=0.8.6" },
     { name = "twine", specifier = ">=6.0.1" },
     { name = "typer", specifier = ">=0.15.1" },
-    { name = "ws-api", specifier = ">=0.5.1" },
+    { name = "ws-api", specifier = ">=0.10.0" },
 ]
 
 [[package]]
@@ -762,14 +762,14 @@ wheels = [
 
 [[package]]
 name = "ws-api"
-version = "0.5.1"
+version = "0.10.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a7/72/a82e3b6029e6cdda594d6eb1e13bd708ba6bcb674f67b18ec16646de54be/ws_api-0.5.1.tar.gz", hash = "sha256:88dbcc22b435158f5fab116e8ac98e9d9105a66830571a2a74ca2c5e82fc4005", size = 23689 }
+sdist = { url = "https://files.pythonhosted.org/packages/f2/ba/8c0bd80d5f171a1b1bd631102c8f76068408a0db6c7a842c195721a234fd/ws_api-0.10.0.tar.gz", hash = "sha256:07a51991b3039a0a545136be4ee283ccc140a8978b0ac36ceea220693053ea89", size = 23985 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2c/8b/76d2a8e471e55cff39e1dc55b2dbda54b86fa407128994fc0cdc0907d25e/WS_API-0.5.1-py3-none-any.whl", hash = "sha256:fb18056bcfd3df2dfa746a9317a1aecfa9981811c8d203b7ff3c1955a5775e17", size = 22508 },
+    { url = "https://files.pythonhosted.org/packages/59/4b/1116f7f6afcfc94e097923acd32464c71ecc2aa603f33c93a5a587f98163/ws_api-0.10.0-py3-none-any.whl", hash = "sha256:8be1332bf6b8dc319eed7d546ffaccfaa732e04771335fb11645df4f45b0e7de", size = 22835 },
 ]
 
 [[package]]
