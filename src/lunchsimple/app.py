@@ -1,7 +1,7 @@
 import json
 import string
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
@@ -258,8 +258,15 @@ def sync(
     # Remove time from datetime
     start_date = start_date.date()
 
+    # Follow ws-api's determination of end date when fetching activities
+    end_date = (
+        datetime.now() + timedelta(hours=23, minutes=59, seconds=59, milliseconds=999)
+    ).date()
+
     console.print(f"Starting transaction sync since {start_date.strftime('%Y-%m-%d')}.")
 
+    # Gather transactions to insert
+    insert_transactions: list[TransactionInsertObject] = []
     wealthsimple_accounts = ws.get_accounts()
     for wealthsimple_account in track(
         wealthsimple_accounts, description="[red]Syncing..."
@@ -267,6 +274,17 @@ def sync(
         wealthsimple_account_id = wealthsimple_account["id"]
 
         if lunch_money_asset_id := config.account_map.get(wealthsimple_account_id):
+            # Get IDs of all existing transactions in Lunch Money for this asset
+            transactions = lunch.get_transactions(
+                asset_id=lunch_money_asset_id,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            existing_transactions = {
+                (transaction.external_id, lunch_money_asset_id)
+                for transaction in transactions
+            }
+
             wealthsimple_activities = ws.get_activities(
                 wealthsimple_account_id, how_many=500
             )
@@ -308,33 +326,51 @@ def sync(
                     payee = "Wealthsimple"
                     notes = wealthsimple_activity["description"]
 
-                # TODO: Don't make a request per transaction
-                transaction = TransactionInsertObject(
-                    external_id=external_id,
-                    notes=notes,
-                    amount=f"{'' if wealthsimple_activity['amountSign'] == 'positive' else '-'}"
-                    + wealthsimple_activity["amount"],
-                    date=datetime.fromisoformat(
-                        wealthsimple_activity["occurredAt"]
-                    ).date(),
-                    payee=payee,
-                    asset_id=lunch_money_asset_id,
+                amount = (
+                    f"{'' if wealthsimple_activity['amountSign'] == 'positive' else '-'}"
+                    + wealthsimple_activity["amount"]
                 )
+                date = datetime.fromisoformat(
+                    wealthsimple_activity["occurredAt"]
+                ).date()
 
-                try:
-                    lunch.insert_transactions(
-                        transactions=transaction,
-                        debit_as_negative=True,
-                        apply_rules=apply_rules,
+                # Only attempt to insert the transaction if it doesn't yet exist
+                if (external_id, lunch_money_asset_id) not in existing_transactions:
+                    transaction = TransactionInsertObject(
+                        external_id=external_id,
+                        notes=notes,
+                        amount=amount,
+                        date=date,
+                        payee=payee,
+                        asset_id=lunch_money_asset_id,
+                        category_id=None,
+                        currency=None,
+                        status=None,
+                        recurring_id=None,
+                        tags=None,
                     )
-                except LunchMoneyHTTPError as e:
-                    # TODO: Think of way not to thrash API with transactions that already exist
-                    if "already exists" in str(e):
-                        pass
-                    else:
-                        raise e
+                    insert_transactions.append(transaction)
 
-    console.print("[green]Done![/green]")
+    # Insert transactions in bulk
+    if len(insert_transactions):
+        try:
+            ids = lunch.insert_transactions(
+                transactions=insert_transactions,
+                debit_as_negative=True,
+                apply_rules=apply_rules,
+            )
+            console.print(f"[green]Imported {len(ids)} transaction(s)![/green]")
+        except LunchMoneyHTTPError as e:
+            if "already exists" in str(e):
+                err_console.print(
+                    "[red]You may be querying for too many transactions, try a less distant start_date."
+                )
+                raise e
+            else:
+                raise e
+
+    else:
+        console.print("No new transactions to import.")
 
 
 if __name__ == "__main__":
