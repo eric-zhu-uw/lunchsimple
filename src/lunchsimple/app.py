@@ -284,24 +284,18 @@ def sync(
                 if date < start_date:
                     continue
 
-                payee = (
-                    wealthsimple_activity["spendMerchant"]
-                    if wealthsimple_activity["spendMerchant"]
-                    else "Wealthsimple"
-                )
-
-                if (
+                if name := wealthsimple_activity["spendMerchant"]:
+                    payee = name
+                    notes = ""
+                elif (
                     wealthsimple_activity["type"] in ["DEPOSIT", "WITHDRAWAL"]
                     and wealthsimple_activity["subType"] == "AFT"
                     and (name := wealthsimple_activity["aftOriginatorName"])
                 ):
-                    notes = f"{wealthsimple_activity['type'].capitalize()}: {name}"
-                elif (
-                    wealthsimple_activity["type"] == "SPEND"
-                    and wealthsimple_activity["subType"] == "PREPAID"
-                ):
+                    payee = name
                     notes = ""
                 else:
+                    payee = "Wealthsimple"
                     notes = wealthsimple_activity["description"]
 
                 # TODO: Don't make a request per transaction
