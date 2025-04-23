@@ -267,7 +267,7 @@ def sync(
     console.print(f"Starting transaction sync since {start_date.strftime('%Y-%m-%d')}.")
 
     # Gather transactions to insert
-    transactions: list[TransactionInsertObject] = []
+    insert_transactions: list[TransactionInsertObject] = []
     wealthsimple_accounts = ws.get_accounts()
     for wealthsimple_account in track(
         wealthsimple_accounts, description="[red]Syncing..."
@@ -350,9 +350,9 @@ def sync(
                         recurring_id=None,
                         tags=None,
                     )
-                    transactions.append(transaction)
+                    insert_transactions.append(transaction)
 
-    _insert_transactions(transactions, lunch, apply_rules)
+    _insert_transactions(insert_transactions, lunch, apply_rules)
 
 
 def _insert_transactions(
