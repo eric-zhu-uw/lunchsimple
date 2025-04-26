@@ -1,6 +1,6 @@
 [project]
 name = "lunchsimple"
-version = "0.2.4"
+version = "0.3.0"
 authors = [{ name = "Colby Hubscher", email = "colby@colbyhub.com" }]
 description = "Sync Wealthsimple with Lunch Money."
 readme = "README.md"
