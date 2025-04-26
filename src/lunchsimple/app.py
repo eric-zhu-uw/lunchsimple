@@ -4,7 +4,7 @@ import string
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import keyring
 from lunchable import LunchMoney, TransactionInsertObject
@@ -74,7 +74,7 @@ def get_session() -> WSAPISession:
     if session_data := keyring.get_password(keyring_service_name, "session"):
         return WSAPISession.from_json(session_data)
     else:
-        err_console.print("Please run [cyan]lunchsimple login[/cyan] first.")
+        err_console.print(f"Please run [cyan]{APP_NAME} login[/cyan] first.")
         raise typer.Exit(1)
 
 
@@ -96,7 +96,7 @@ def save_config(config: Config) -> None:
     console.print(f"Saved config to {config_path}", style="green")
 
 
-def load_config() -> Config:
+def load_config(print_error: bool = True) -> Config:
     """
     Load the configuration from the filesystem.
     """
@@ -107,7 +107,8 @@ def load_config() -> Config:
 
     # Check if it exists
     if not config_directory.is_dir() or not config_path.is_file():
-        err_console.print("Please run [cyan]lunchsimple configure[/cyan] first.")
+        if print_error:
+            err_console.print(f"Please run [cyan]{APP_NAME} configure[/cyan] first.")
         raise typer.Exit(1)
 
     # Load from filesystem
@@ -156,12 +157,20 @@ def login(
 @app.command()
 def configure(
     access_token: Annotated[
-        str, typer.Option(prompt=True, help="Your Lunch Money developer access token")
-    ],
+        str, typer.Option(help="Your Lunch Money developer access token.")
+    ] = "",
 ):
     """
     Link each Wealthsimple account with a corresponding Lunch Money asset.
     """
+    # Get access token
+    if not access_token:
+        try:
+            config = load_config(print_error=False)
+            access_token = config.access_token
+        except typer.Exit:
+            access_token = cast(str, typer.prompt("Access token", type=str))
+
     # Get session
     session = get_session()
     ws = WealthsimpleAPI.from_token(session, persist_session)
