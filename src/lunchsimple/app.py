@@ -120,13 +120,12 @@ def load_config() -> Config:
 @app.command()
 def login(
     email: Annotated[
-        str, typer.Option(prompt="Wealthsimple Email", help="Your Wealthsimple email")
+        str, typer.Option(prompt="Wealthsimple Email", help="Your Wealthsimple email.")
     ],
     password: Annotated[
         str,
         typer.Option(
             prompt=True,
-            confirmation_prompt=True,
             hide_input=True,
             help="Your Wealthsimple password.",
         ),
