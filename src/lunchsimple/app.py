@@ -61,7 +61,10 @@ class Config:
     """A simple dict providing the links between accounts and assets"""
 
 
-def persist_session(session):
+def persist_session(session: str):
+    """
+    Helper method to persist the Wealthsimple session to the system keyring.
+    """
     keyring.set_password(keyring_service_name, "session", session)
 
 
@@ -113,9 +116,9 @@ def load_config(print_error: bool = True) -> Config:
 
     # Load from filesystem
     with open(config_path, "r") as file:
-        config_dict = json.loads(file.read())
+        config_dict = cast(dict[str, str | dict[str, int]], json.loads(file.read()))
 
-    return Config(**config_dict)
+    return Config(**config_dict)  # pyright:ignore[reportArgumentType]
 
 
 @app.command()
@@ -206,8 +209,9 @@ def configure(
     # Associate Wealth Simple accounts with Lunch Money assets
     account_map = {}
     while True:
-        choice: str = typer.prompt(
-            "Please provide a number and a letter (type DONE to finish)"
+        choice: str = cast(
+            str,
+            typer.prompt("Please provide a number and a letter (type DONE to finish)"),
         )
         match choice.split(" "):
             case [account_number, asset_letter]:
@@ -238,11 +242,10 @@ def configure(
 @app.command()
 def sync(
     start_date: Annotated[
-        datetime,
+        datetime | None,
         typer.Option(
             formats=["%Y-%m-%d"],
-            help="The date from which to start syncing from. "
-            "Warning: dates far into the past may not work properly.",
+            help="The date from which to start syncing from. Warning: dates far into the past may not work properly.",
         ),
     ] = None,
     apply_rules: Annotated[
@@ -264,8 +267,8 @@ def sync(
         start_date = datetime.now()
         start_date = start_date.replace(day=1)
 
-    # Remove time from datetime
-    start_date = start_date.date()
+    # Zero-out time from datetime
+    start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
 
     # Follow ws-api's determination of end date when fetching activities
     end_date = (
@@ -304,7 +307,7 @@ def sync(
 
                 date = datetime.fromisoformat(
                     wealthsimple_activity["occurredAt"]
-                ).date()
+                ).replace(tzinfo=None)
 
                 # Exit early if the activity is before our start date
                 # TODO: Find a way to query the start date with ws-api
