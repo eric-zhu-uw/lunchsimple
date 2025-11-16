@@ -325,16 +325,22 @@ def configure(
     if email is None:
         email = prompt_session_selection()
     
-    # Get access token - try to load from existing config for this email first
+    # Try to load existing config
+    existing_config = None
+    try:
+        existing_config = load_config(email=email, print_error=False)
+    except typer.Exit:
+        pass
+    
+    # Get access token - use existing if available, otherwise prompt
     if not access_token:
-        try:
-            config = load_config(email=email, print_error=False)
-            access_token = config.access_token
-        except typer.Exit:
+        if existing_config:
+            access_token = existing_config.access_token
+        else:
             # Try any available config as fallback
             try:
-                config = load_config(print_error=False)
-                access_token = config.access_token
+                fallback_config = load_config(print_error=False)
+                access_token = fallback_config.access_token
             except typer.Exit:
                 access_token = cast(str, typer.prompt("Access token", type=str))
     
@@ -369,36 +375,101 @@ def configure(
 
     console.print(table)
 
+    # Create maps for account and asset lookups
+    ws_account_map = {
+        account["id"]: account["description"]
+        for account in wealthsimple_accounts
+    }
+    lm_asset_map = {
+        asset.id: _get_asset_display_name(asset)
+        for asset in lunch_money_assets
+    }
+
+    # Start with existing account_map if available, otherwise empty dict
+    account_map = existing_config.account_map.copy() if existing_config else {}
+    
+    # Show current mappings if any exist
+    if account_map:
+        console.print("\n[bold]Current Account Mappings:[/bold]")
+        current_table = Table("Wealthsimple Account", "Lunch Money Asset")
+        for ws_account_id, lm_asset_id in account_map.items():
+            ws_account_name = ws_account_map.get(
+                ws_account_id, f"Account ID: {ws_account_id}"
+            )
+            lm_asset_name = lm_asset_map.get(
+                lm_asset_id, f"Asset ID: {lm_asset_id}"
+            )
+            current_table.add_row(ws_account_name, lm_asset_name)
+        console.print(current_table)
+        console.print(
+            "\n[yellow]You can add new mappings or remove existing ones. Type 'REMOVE <number>' to remove a mapping, or 'CLEAR' to start fresh.[/yellow]"
+        )
+
     console.print(
-        "Link accounts by choosing the corresponding number and letter (e.g. '1 B' would link Account '1' to Asset 'B')."
+        "\nLink accounts by choosing the corresponding number and letter (e.g. '1 B' would link Account '1' to Asset 'B')."
     )
 
     # Associate Wealth Simple accounts with Lunch Money assets
-    account_map = {}
     while True:
         choice: str = cast(
             str,
             typer.prompt("Please provide a number and a letter (type DONE to finish)"),
         )
-        match choice.split(" "):
+        choice_upper = choice.upper()
+        match choice_upper.split(" "):
+            case ["CLEAR"]:
+                if typer.confirm("Are you sure you want to clear all existing mappings?"):
+                    account_map = {}
+                    console.print("[yellow]All mappings cleared. Starting fresh.[/yellow]")
+                else:
+                    console.print("[green]Cancelled. Keeping existing mappings.[/green]")
+            case ["REMOVE", account_number]:
+                try:
+                    account_idx = int(account_number) - 1
+                    if 0 <= account_idx < len(wealthsimple_accounts):
+                        ws_account = wealthsimple_accounts[account_idx]
+                        ws_account_id = ws_account["id"]
+                        if ws_account_id in account_map:
+                            removed_asset_id = account_map.pop(ws_account_id)
+                            removed_asset_name = lm_asset_map.get(
+                                removed_asset_id, f"Asset ID: {removed_asset_id}"
+                            )
+                            console.print(
+                                f"[yellow]Removed mapping: {ws_account['description']} -> {removed_asset_name}[/yellow]"
+                            )
+                        else:
+                            console.print(
+                                f"[red]No mapping found for account {ws_account['description']}[/red]"
+                            )
+                    else:
+                        console.print(
+                            f"[red]Invalid account number. Please enter a number between 1 and {len(wealthsimple_accounts)}.[/red]"
+                        )
+                except ValueError:
+                    console.print("[red]Please enter a valid number after REMOVE.[/red]")
             case [account_number, asset_letter]:
-                wealthsimple_account = wealthsimple_accounts[
-                    int(account_number) - 1
-                ]  # -1
-                lunch_money_asset = lunch_money_assets[
-                    string.ascii_uppercase.index(asset_letter)
-                ]
-                account_map[wealthsimple_account["id"]] = lunch_money_asset.id
+                try:
+                    wealthsimple_account = wealthsimple_accounts[
+                        int(account_number) - 1
+                    ]
+                    lunch_money_asset = lunch_money_assets[
+                        string.ascii_uppercase.index(asset_letter)
+                    ]
+                    account_map[wealthsimple_account["id"]] = lunch_money_asset.id
 
-                console.print(
-                    f"Linked {wealthsimple_account['description']} to {_get_asset_display_name(lunch_money_asset)}",
-                    style="green",
-                )
+                    console.print(
+                        f"Linked {wealthsimple_account['description']} to {_get_asset_display_name(lunch_money_asset)}",
+                        style="green",
+                    )
+                except (ValueError, IndexError):
+                    console.print(
+                        "[red]Invalid account number or asset letter. Please try again.[/red]"
+                    )
             case ["DONE"] | ["done"]:
                 break
             case _:
                 console.print(
-                    "[red]Please enter a number followed by a space and a letter.[/red]"
+                    "[red]Please enter a number followed by a space and a letter, 'REMOVE <number>', 'CLEAR', or 'DONE'.[/red]"
                 )
 
     # Save the config for this email
