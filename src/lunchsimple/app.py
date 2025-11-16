@@ -23,7 +23,6 @@ from ws_api import (
 )
 
 APP_NAME = "lunchsimple"
-CONFIG_FILE_NAME = "config.json"
 
 app = typer.Typer(no_args_is_help=True, pretty_exceptions_show_locals=False)
 
@@ -61,29 +60,123 @@ class Config:
     """A simple dict providing the links between accounts and assets"""
 
 
-def persist_session(session: str):
+def _get_all_session_emails() -> list[str]:
+    """
+    Get a list of all emails that have stored sessions.
+    
+    :return: List of email addresses with stored sessions
+    """
+    emails_json = keyring.get_password(keyring_service_name, "session_emails")
+    if emails_json:
+        return json.loads(emails_json)
+    return []
+
+
+def _add_session_email(email: str):
+    """
+    Add an email to the list of emails with sessions.
+    
+    :param email: The email address to add
+    """
+    emails = _get_all_session_emails()
+    if email not in emails:
+        emails.append(email)
+        keyring.set_password(keyring_service_name, "session_emails", json.dumps(emails))
+
+
+def persist_session(session: str, email: str):
     """
     Helper method to persist the Wealthsimple session to the system keyring.
+    
+    :param session: The session data to persist
+    :param email: The email address associated with this session
     """
-    keyring.set_password(keyring_service_name, "session", session)
+    keyring.set_password(keyring_service_name, f"session_{email}", session)
+    # Add to list of all session emails
+    _add_session_email(email)
 
 
-def get_session() -> WSAPISession:
+def get_session(email: str | None = None) -> WSAPISession:
     """
     Get the JSON session data from the keyring.
 
+    :param email: The email address to retrieve the session for. If None, uses the first available session (for internal use only).
     :return: The persisted session data
     """
-    if session_data := keyring.get_password(keyring_service_name, "session"):
+    # If no email provided, try to get the first available session
+    if email is None:
+        emails = _get_all_session_emails()
+        if not emails:
+            err_console.print(f"Please run [cyan]{APP_NAME} login[/cyan] first.")
+            raise typer.Exit(1)
+        email = emails[0]
+    
+    if session_data := keyring.get_password(keyring_service_name, f"session_{email}"):
         return WSAPISession.from_json(session_data)
     else:
         err_console.print(f"Please run [cyan]{APP_NAME} login[/cyan] first.")
         raise typer.Exit(1)
 
 
-def save_config(config: Config) -> None:
+def list_all_sessions() -> dict[str, WSAPISession]:
     """
-    Save the configuration to a file in the user's home.
+    Get all stored sessions.
+    
+    :return: Dictionary mapping email addresses to their sessions
+    """
+    sessions = {}
+    emails = _get_all_session_emails()
+    for email in emails:
+        if session_data := keyring.get_password(keyring_service_name, f"session_{email}"):
+            try:
+                sessions[email] = WSAPISession.from_json(session_data)
+            except Exception:
+                # Skip invalid sessions
+                continue
+    return sessions
+
+
+def prompt_session_selection() -> str:
+    """
+    Display all available sessions and prompt the user to select one.
+    
+    :return: The selected email address
+    """
+    all_sessions = list_all_sessions()
+    
+    if not all_sessions:
+        err_console.print("No sessions found. Please run [cyan]lunchsimple login[/cyan] first.")
+        raise typer.Exit(1)
+    
+    # Display sessions table
+    console.print("\n[bold]Available Sessions[/bold]")
+    sessions_table = Table("", "Email")
+    session_emails = list(all_sessions.keys())
+    for index, email in enumerate(session_emails):
+        sessions_table.add_row(f"[green]{str(index + 1)}[/green]", email)
+    console.print(sessions_table)
+    
+    # Prompt for selection
+    while True:
+        try:
+            choice = typer.prompt(f"\nSelect a session (1-{len(session_emails)})")
+            choice_num = int(choice)
+            if 1 <= choice_num <= len(session_emails):
+                return session_emails[choice_num - 1]
+            else:
+                err_console.print(f"Please enter a number between 1 and {len(session_emails)}.")
+        except ValueError:
+            err_console.print("Please enter a valid number.")
+        except KeyboardInterrupt:
+            raise typer.Exit(1)
+
+
+def save_config(config: Config, email: str) -> None:
+    """
+    Save the configuration to a file in the user's home, specific to the email/session.
+    
+    :param config: The configuration to save
+    :param email: The email address associated with this config
     """
     # Get or create config directory
     app_dir = typer.get_app_dir(APP_NAME)
@@ -91,34 +184,88 @@ def save_config(config: Config) -> None:
 
     config_directory.mkdir(parents=True, exist_ok=True)
 
-    # Save config file
-    config_path = Path(app_dir) / CONFIG_FILE_NAME
+    # Save config file with email-specific name
+    # Sanitize email for filename (replace @ and . with _)
+    safe_email = email.replace("@", "_at_").replace(".", "_")
+    config_path = Path(app_dir) / f"config_{safe_email}.json"
     with open(config_path, "w") as file:
         json.dump(asdict(config), file)
 
-    console.print(f"Saved config to {config_path}", style="green")
+    console.print(f"Saved config for {email} to {config_path}", style="green")
 
 
-def load_config(print_error: bool = True) -> Config:
+def load_config(email: str | None = None, print_error: bool = True) -> Config:
     """
-    Load the configuration from the filesystem.
+    Load the configuration from the filesystem for a specific email/session.
+    
+    :param email: The email address to load config for. If None, tries to load first available config.
+    :param print_error: Whether to print error messages if config not found
+    :return: The loaded configuration
     """
     # Get the config directory
     app_dir = typer.get_app_dir(APP_NAME)
     config_directory = Path(app_dir)
-    config_path = Path(app_dir) / CONFIG_FILE_NAME
-
-    # Check if it exists
-    if not config_directory.is_dir() or not config_path.is_file():
-        if print_error:
+    
+    # If email is provided, load email-specific config
+    if email:
+        safe_email = email.replace("@", "_at_").replace(".", "_")
+        config_path = Path(app_dir) / f"config_{safe_email}.json"
+        
+        if config_path.is_file():
+            with open(config_path, "r") as file:
+                config_dict = cast(dict[str, str | dict[str, int]], json.loads(file.read()))
+            return Config(**config_dict)  # pyright:ignore[reportArgumentType]
+    
+    # If no email provided, try to find any config
+    if email is None:
+        emails = _get_all_session_emails()
+        for session_email in emails:
+            safe_email = session_email.replace("@", "_at_").replace(".", "_")
+            config_path = Path(app_dir) / f"config_{safe_email}.json"
+            if config_path.is_file():
+                with open(config_path, "r") as file:
+                    config_dict = cast(dict[str, str | dict[str, int]], json.loads(file.read()))
+                return Config(**config_dict)  # pyright:ignore[reportArgumentType]
+    
+    # No config found
+    if print_error:
+        if email:
+            err_console.print(f"Please run [cyan]{APP_NAME} configure --email {email}[/cyan] first.")
+        else:
             err_console.print(f"Please run [cyan]{APP_NAME} configure[/cyan] first.")
-        raise typer.Exit(1)
+    raise typer.Exit(1)
 
-    # Load from filesystem
-    with open(config_path, "r") as file:
-        config_dict = cast(dict[str, str | dict[str, int]], json.loads(file.read()))
 
-    return Config(**config_dict)  # pyright:ignore[reportArgumentType]
+def list_all_configs() -> dict[str, Config]:
+    """
+    Get all stored configs.
+    
+    :return: Dictionary mapping email addresses to their configs
+    """
+    configs = {}
+    app_dir = typer.get_app_dir(APP_NAME)
+    config_directory = Path(app_dir)
+    
+    if not config_directory.is_dir():
+        return configs
+    
+    # Get all emails with sessions
+    emails = _get_all_session_emails()
+    
+    # Try to load config for each email
+    for email in emails:
+        safe_email = email.replace("@", "_at_").replace(".", "_")
+        config_path = config_directory / f"config_{safe_email}.json"
+        if config_path.is_file():
+            try:
+                with open(config_path, "r") as file:
+                    config_dict = cast(dict[str, str | dict[str, int]], json.loads(file.read()))
+                configs[email] = Config(**config_dict)  # pyright:ignore[reportArgumentType]
+            except Exception:
+                # Skip invalid configs
+                continue
+    
+    return configs
 
 
 @app.command()
@@ -141,12 +288,16 @@ def login(
     """
     Log in to Wealthsimple.
     """
+    # Create a closure that captures the email
+    def persist_session_with_email(session: str):
+        persist_session(session, email)
+    
     try:
         WealthsimpleAPI.login(
             email,
             password,
             otp_answer,
-            persist_session_fct=persist_session,
+            persist_session_fct=persist_session_with_email,
         )
         console.print("Success! Saved session to system keyring.", style="green")
     except OTPRequiredException:
@@ -162,21 +313,37 @@ def configure(
     access_token: Annotated[
         str, typer.Option(help="Your Lunch Money developer access token.")
     ] = "",
+    email: Annotated[
+        str | None,
+        typer.Option(help="Email address to use for the session. If not provided, you will be prompted to select from available sessions."),
+    ] = None,
 ):
     """
     Link each Wealthsimple account with a corresponding Lunch Money asset.
     """
-    # Get access token
+    # If no email provided, prompt user to select a session
+    if email is None:
+        email = prompt_session_selection()
+    
+    # Get access token - try to load from existing config for this email first
     if not access_token:
         try:
-            config = load_config(print_error=False)
+            config = load_config(email=email, print_error=False)
             access_token = config.access_token
         except typer.Exit:
-            access_token = cast(str, typer.prompt("Access token", type=str))
-
+            # Try any available config as fallback
+            try:
+                config = load_config(print_error=False)
+                access_token = config.access_token
+            except typer.Exit:
+                access_token = cast(str, typer.prompt("Access token", type=str))
+    
     # Get session
-    session = get_session()
-    ws = WealthsimpleAPI.from_token(session, persist_session)
+    session = get_session(email)
+    # Create a closure that captures the email
+    def persist_session_with_email(session: str):
+        persist_session(session, email)
+    ws = WealthsimpleAPI.from_token(session, persist_session_with_email)
 
     # Render Wealthsimple Accounts table
     table = Table("", "Wealthsimple Account")
@@ -234,9 +401,9 @@ def configure(
                     "[red]Please enter a number followed by a space and a letter.[/red]"
                 )
 
-    # Save the config
+    # Save the config for this email
     config = Config(access_token=access_token, account_map=account_map)
-    save_config(config)
+    save_config(config, email)
 
 
 @app.command()
@@ -244,22 +411,15 @@ def view() -> None:
     """
     View your current configurations and login status.
     """
+    # Get all sessions
+    all_sessions = list_all_sessions()
+    
     # Check login status
-    session_exists = False
-    try:
-        get_session()
-        session_exists = True
-    except typer.Exit:
-        pass
+    session_exists = len(all_sessions) > 0
 
-    # Check config status
-    config_exists = False
-    config = None
-    try:
-        config = load_config(print_error=False)
-        config_exists = True
-    except typer.Exit:
-        pass
+    # Get all configs
+    all_configs = list_all_configs()
+    config_exists = len(all_configs) > 0
 
     # Display login status
     console.print("\n[bold]Login Status[/bold]")
@@ -267,7 +427,7 @@ def view() -> None:
     if session_exists:
         login_table.add_row(
             "[green]✓ Logged in[/green]",
-            "Wealthsimple session found in system keyring"
+            f"{len(all_sessions)} session(s) found in system keyring"
         )
     else:
         login_table.add_row(
@@ -275,82 +435,102 @@ def view() -> None:
             "Run [cyan]lunchsimple login[/cyan] to authenticate"
         )
     console.print(login_table)
+    
+    # Display all sessions
+    if session_exists:
+        console.print("\n[bold]Stored Sessions[/bold]")
+        sessions_table = Table("Email", "Status")
+        for email, session in all_sessions.items():
+            status = "[green]Available[/green]"
+            sessions_table.add_row(email, status)
+        console.print(sessions_table)
 
     # Display config status
     console.print("\n[bold]Configuration Status[/bold]")
-    config_table = Table("Setting", "Status", "Details")
-    if config_exists and config:
-        # Show access token status (masked)
-        token_display = (
-            f"{config.access_token[:8]}...{config.access_token[-4:]}"
-            if len(config.access_token) > 12
-            else "***"
-        )
-        config_table.add_row(
-            "Lunch Money Access Token",
-            "[green]✓ Configured[/green]",
-            token_display
-        )
-
-        # Show account mappings
-        num_mappings = len(config.account_map)
-        if num_mappings > 0:
-            config_table.add_row(
-                "Account Mappings",
-                "[green]✓ Configured[/green]",
-                f"{num_mappings} account(s) mapped"
+    config_table = Table("Email", "Status", "Access Token", "Account Mappings")
+    if config_exists:
+        for email, config in all_configs.items():
+            # Show access token status (masked)
+            token_display = (
+                f"{config.access_token[:8]}...{config.access_token[-4:]}"
+                if len(config.access_token) > 12
+                else "***"
             )
-        else:
+            
+            # Show account mappings count
+            num_mappings = len(config.account_map)
+            mappings_display = (
+                f"[green]{num_mappings} mapped[/green]"
+                if num_mappings > 0
+                else "[yellow]Not configured[/yellow]"
+            )
+            
+            status = "[green]✓ Configured[/green]" if num_mappings > 0 else "[yellow]⚠ Partial[/yellow]"
             config_table.add_row(
-                "Account Mappings",
-                "[yellow]⚠ Not configured[/yellow]",
-                "No accounts mapped"
+                email,
+                status,
+                token_display,
+                mappings_display
             )
     else:
         config_table.add_row(
-            "Configuration",
+            "N/A",
             "[red]✗ Not configured[/red]",
+            "N/A",
             "Run [cyan]lunchsimple configure[/cyan] to set up"
         )
     console.print(config_table)
 
-    # If both session and config exist, show detailed account mappings
-    if session_exists and config_exists and config and len(config.account_map) > 0:
-        try:
-            session = get_session()
-            ws = WealthsimpleAPI.from_token(session, persist_session)
-            lunch = LunchMoney(access_token=config.access_token)
+    # If both session and config exist, show detailed account mappings for each configured session
+    if session_exists and config_exists:
+        for email, config in all_configs.items():
+            if email not in all_sessions:
+                continue
+                
+            if len(config.account_map) == 0:
+                continue
+                
+            try:
+                session = get_session(email)
+                # Create a closure that captures the email (use default argument to capture current value)
+                def make_persist_function(email: str):
+                    def persist_session_with_email(session: str):
+                        persist_session(session, email)
+                    return persist_session_with_email
+                persist_session_with_email = make_persist_function(email)
+                ws = WealthsimpleAPI.from_token(session, persist_session_with_email)
+                lunch = LunchMoney(access_token=config.access_token)
 
-            # Get account and asset details
-            wealthsimple_accounts = ws.get_accounts()
-            lunch_money_assets = lunch.get_assets()
+                # Get account and asset details
+                wealthsimple_accounts = ws.get_accounts()
+                lunch_money_assets = lunch.get_assets()
 
-            # Create a mapping of IDs to names
-            ws_account_map = {
-                account["id"]: account["description"]
-                for account in wealthsimple_accounts
-            }
-            lm_asset_map = {
-                asset.id: _get_asset_display_name(asset)
-                for asset in lunch_money_assets
-            }
+                # Create a mapping of IDs to names
+                ws_account_map = {
+                    account["id"]: account["description"]
+                    for account in wealthsimple_accounts
+                }
+                lm_asset_map = {
+                    asset.id: _get_asset_display_name(asset)
+                    for asset in lunch_money_assets
+                }
 
-            # Display detailed mappings
-            console.print("\n[bold]Account Mappings[/bold]")
-            mapping_table = Table("Wealthsimple Account", "Lunch Money Asset")
-            for ws_account_id, lm_asset_id in config.account_map.items():
-                ws_account_name = ws_account_map.get(
-                    ws_account_id, f"Account ID: {ws_account_id}"
+                # Display detailed mappings for this email
+                console.print(f"\n[bold]Account Mappings for {email}[/bold]")
+                mapping_table = Table("Wealthsimple Account", "Lunch Money Asset")
+                for ws_account_id, lm_asset_id in config.account_map.items():
+                    ws_account_name = ws_account_map.get(
+                        ws_account_id, f"Account ID: {ws_account_id}"
+                    )
+                    lm_asset_name = lm_asset_map.get(
+                        lm_asset_id, f"Asset ID: {lm_asset_id}"
+                    )
+                    mapping_table.add_row(ws_account_name, lm_asset_name)
+                console.print(mapping_table)
+            except Exception as e:
+                console.print(
+                    f"\n[yellow]Warning: Could not fetch detailed account information for {email}: {e}[/yellow]"
                 )
-                lm_asset_name = lm_asset_map.get(
-                    lm_asset_id, f"Asset ID: {lm_asset_id}"
-                )
-                mapping_table.add_row(ws_account_name, lm_asset_name)
-            console.print(mapping_table)
-        except Exception as e:
-            console.print(
-                f"\n[yellow]Warning: Could not fetch detailed account information: {e}[/yellow]"
-            )
 
     console.print()  # Add trailing newline
 
@@ -368,13 +548,24 @@ def sync(
         bool,
         typer.Option(help="Whether or not to apply transaction rules."),
     ] = True,
+    email: Annotated[
+        str | None,
+        typer.Option(help="Email address to use for the session. If not provided, you will be prompted to select from available sessions."),
+    ] = None,
 ):
     """
     Pull transactions from your Wealthsimple account and add them to Lunch Money.
     """
-    session = get_session()
-    ws = WealthsimpleAPI.from_token(session, persist_session)
-    config = load_config()
+    # If no email provided, prompt user to select a session
+    if email is None:
+        email = prompt_session_selection()
+    
+    session = get_session(email)
+    # Create a closure that captures the email
+    def persist_session_with_email(session: str):
+        persist_session(session, email)
+    ws = WealthsimpleAPI.from_token(session, persist_session_with_email)
+    config = load_config(email=email)
     lunch = LunchMoney(access_token=config.access_token)
 
     # Set sync start date
