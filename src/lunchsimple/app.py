@@ -240,6 +240,122 @@ def configure(
 
 
 @app.command()
+def view() -> None:
+    """
+    View your current configurations and login status.
+    """
+    # Check login status
+    session_exists = False
+    try:
+        get_session()
+        session_exists = True
+    except typer.Exit:
+        pass
+
+    # Check config status
+    config_exists = False
+    config = None
+    try:
+        config = load_config(print_error=False)
+        config_exists = True
+    except typer.Exit:
+        pass
+
+    # Display login status
+    console.print("\n[bold]Login Status[/bold]")
+    login_table = Table("Status", "Details")
+    if session_exists:
+        login_table.add_row(
+            "[green]✓ Logged in[/green]",
+            "Wealthsimple session found in system keyring"
+        )
+    else:
+        login_table.add_row(
+            "[red]✗ Not logged in[/red]",
+            "Run [cyan]lunchsimple login[/cyan] to authenticate"
+        )
+    console.print(login_table)
+
+    # Display config status
+    console.print("\n[bold]Configuration Status[/bold]")
+    config_table = Table("Setting", "Status", "Details")
+    if config_exists and config:
+        # Show access token status (masked)
+        token_display = (
+            f"{config.access_token[:8]}...{config.access_token[-4:]}"
+            if len(config.access_token) > 12
+            else "***"
+        )
+        config_table.add_row(
+            "Lunch Money Access Token",
+            "[green]✓ Configured[/green]",
+            token_display
+        )
+
+        # Show account mappings
+        num_mappings = len(config.account_map)
+        if num_mappings > 0:
+            config_table.add_row(
+                "Account Mappings",
+                "[green]✓ Configured[/green]",
+                f"{num_mappings} account(s) mapped"
+            )
+        else:
+            config_table.add_row(
+                "Account Mappings",
+                "[yellow]⚠ Not configured[/yellow]",
+                "No accounts mapped"
+            )
+    else:
+        config_table.add_row(
+            "Configuration",
+            "[red]✗ Not configured[/red]",
+            "Run [cyan]lunchsimple configure[/cyan] to set up"
+        )
+    console.print(config_table)
+
+    # If both session and config exist, show detailed account mappings
+    if session_exists and config_exists and config and len(config.account_map) > 0:
+        try:
+            session = get_session()
+            ws = WealthsimpleAPI.from_token(session, persist_session)
+            lunch = LunchMoney(access_token=config.access_token)
+
+            # Get account and asset details
+            wealthsimple_accounts = ws.get_accounts()
+            lunch_money_assets = lunch.get_assets()
+
+            # Create a mapping of IDs to names
+            ws_account_map = {
+                account["id"]: account["description"]
+                for account in wealthsimple_accounts
+            }
+            lm_asset_map = {
+                asset.id: _get_asset_display_name(asset)
+                for asset in lunch_money_assets
+            }
+
+            # Display detailed mappings
+            console.print("\n[bold]Account Mappings[/bold]")
+            mapping_table = Table("Wealthsimple Account", "Lunch Money Asset")
+            for ws_account_id, lm_asset_id in config.account_map.items():
+                ws_account_name = ws_account_map.get(
+                    ws_account_id, f"Account ID: {ws_account_id}"
+                )
+                lm_asset_name = lm_asset_map.get(
+                    lm_asset_id, f"Asset ID: {lm_asset_id}"
+                )
+                mapping_table.add_row(ws_account_name, lm_asset_name)
+            console.print(mapping_table)
+        except Exception as e:
+            console.print(
+                f"\n[yellow]Warning: Could not fetch detailed account information: {e}[/yellow]"
+            )
+
+    console.print()  # Add trailing newline
+
+
+@app.command()
 def sync(
     start_date: Annotated[
         datetime | None,
