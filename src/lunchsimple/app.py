@@ -797,5 +797,180 @@ def _insert_transactions(
         console.print("No new transactions to import.")
 
 
+@app.command()
+def balance(
+    email: Annotated[
+        str | None,
+        typer.Option(help="Email address to use for the session. If not provided, you will be prompted to select from available sessions."),
+    ] = None,
+) -> None:
+    """
+    Compare balances between Wealthsimple accounts and Lunch Money assets for a given session.
+    """
+    # If no email provided, prompt user to select a session
+    if email is None:
+        email = prompt_session_selection()
+    
+    session = get_session(email)
+    # Create a closure that captures the email
+    def persist_session_with_email(session: str):
+        persist_session(session, email)
+    ws = WealthsimpleAPI.from_token(session, persist_session_with_email)
+    config = load_config(email=email)
+    lunch = LunchMoney(access_token=config.access_token)
+
+    console.print(f"\n[bold]Comparing balances for session: {email}[/bold]\n")
+
+    # Get Wealthsimple accounts
+    wealthsimple_accounts = ws.get_accounts()
+    
+    # Get Lunch Money assets
+    lunch_money_assets = lunch.get_assets()
+    
+    # Create a map of asset ID to asset object for quick lookup
+    lm_asset_map = {asset.id: asset for asset in lunch_money_assets}
+    
+    # Create a map of account ID to account name
+    ws_account_map = {
+        account["id"]: account["description"]
+        for account in wealthsimple_accounts
+    }
+    
+    # Build comparison table
+    balance_table = Table(
+        "Wealthsimple Account",
+        "WS Balance",
+        "Lunch Money Asset",
+        "LM Balance",
+        "Match"
+    )
+    
+    all_match = True
+    
+    # Compare balances for each mapped account
+    for ws_account_id, lm_asset_id in config.account_map.items():
+        ws_account_name = ws_account_map.get(
+            ws_account_id, f"Account ID: {ws_account_id}"
+        )
+        lm_asset = lm_asset_map.get(lm_asset_id)
+        
+        if not lm_asset:
+            balance_table.add_row(
+                ws_account_name,
+                "[red]N/A[/red]",
+                f"Asset ID: {lm_asset_id}",
+                "[red]Not found[/red]",
+                "[red]✗[/red]"
+            )
+            all_match = False
+            continue
+        
+        lm_asset_name = _get_asset_display_name(lm_asset)
+        
+        # Get Wealthsimple account balance
+        ws_balance = None
+        ws_currency = None
+        try:
+            # Try to get balance from account financials
+            account = next(
+                (acc for acc in wealthsimple_accounts if acc["id"] == ws_account_id),
+                None
+            )
+            if account:
+                # Try different possible paths to get the balance
+                financials = account.get("financials", {})
+                if financials:
+                    # Try currentCombined path
+                    current_combined = financials.get("currentCombined", {})
+                    if current_combined:
+                        net_liquidation = current_combined.get("netLiquidationValue", {})
+                        if net_liquidation:
+                            # Try amount field (could be string or number)
+                            amount = net_liquidation.get("amount")
+                            if amount is not None:
+                                ws_balance = float(amount)
+                            # Also try cents field and convert
+                            elif "cents" in net_liquidation:
+                                ws_balance = float(net_liquidation["cents"]) / 100.0
+                            ws_currency = net_liquidation.get("currency", "")
+                    
+                    # If that didn't work, try direct balance access
+                    if ws_balance is None:
+                        net_liquidation = financials.get("netLiquidationValue", {})
+                        if net_liquidation:
+                            amount = net_liquidation.get("amount")
+                            if amount is not None:
+                                ws_balance = float(amount)
+                            elif "cents" in net_liquidation:
+                                ws_balance = float(net_liquidation["cents"]) / 100.0
+                            ws_currency = net_liquidation.get("currency", "")
+        except (KeyError, ValueError, TypeError) as e:
+            console.print(f"[yellow]Warning: Could not get balance for {ws_account_name}: {e}[/yellow]")
+        
+        # Get Lunch Money asset balance
+        lm_balance = None
+        lm_currency = None
+        try:
+            # AssetsObject should have balance field
+            if hasattr(lm_asset, "balance") and lm_asset.balance is not None:
+                lm_balance = float(lm_asset.balance)
+            elif hasattr(lm_asset, "balance_as_of") and lm_asset.balance_as_of is not None:
+                lm_balance = float(lm_asset.balance_as_of)
+            # Check for currency
+            if hasattr(lm_asset, "currency") and lm_asset.currency:
+                lm_currency = lm_asset.currency
+        except (ValueError, TypeError, AttributeError) as e:
+            console.print(f"[yellow]Warning: Could not get balance for {lm_asset_name}: {e}[/yellow]")
+        
+        # Format balances for display
+        if ws_balance is not None:
+            ws_balance_str = f"{ws_balance:,.2f}"
+            if ws_currency:
+                ws_balance_str += f" {ws_currency}"
+        else:
+            ws_balance_str = "[red]N/A[/red]"
+        
+        if lm_balance is not None:
+            lm_balance_str = f"{lm_balance:,.2f}"
+            if lm_currency:
+                lm_balance_str += f" {lm_currency}"
+        else:
+            lm_balance_str = "[red]N/A[/red]"
+        
+        # Compare balances
+        if ws_balance is not None and lm_balance is not None:
+            # Allow for small floating point differences (0.01)
+            if abs(ws_balance - lm_balance) < 0.01:
+                match_str = "[green]✓[/green]"
+            else:
+                match_str = "[red]✗[/red]"
+                all_match = False
+                diff = abs(ws_balance - lm_balance)
+                console.print(
+                    f"[yellow]Mismatch: {ws_account_name} differs by {diff:,.2f}[/yellow]"
+                )
+        else:
+            match_str = "[yellow]?[/yellow]"
+            all_match = False
+        
+        balance_table.add_row(
+            ws_account_name,
+            ws_balance_str,
+            lm_asset_name,
+            lm_balance_str,
+            match_str
+        )
+    
+    console.print(balance_table)
+    
+    # Summary
+    if all_match:
+        console.print("\n[green]✓ All balances match![/green]")
+    else:
+        console.print("\n[yellow]⚠ Some balances do not match or could not be retrieved.[/yellow]")
+    
+    console.print()  # Add trailing newline
+
+
 if __name__ == "__main__":
     app()
