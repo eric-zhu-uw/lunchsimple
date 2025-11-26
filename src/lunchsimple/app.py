@@ -715,11 +715,13 @@ def sync(
                 else:
                     payee = "Wealthsimple"
                     notes = wealthsimple_activity["description"]
-
-                amount = (
-                    f"{'' if wealthsimple_activity['amountSign'] == 'positive' else '-'}"
-                    + wealthsimple_activity["amount"]
-                )
+                
+                amount = "0"
+                if wealthsimple_activity["amount"] is not None:
+                    amount = (
+                        f"{'' if wealthsimple_activity['amountSign'] == 'positive' else '-'}"
+                        + wealthsimple_activity["amount"]
+                    )
                 date = datetime.fromisoformat(
                     wealthsimple_activity["occurredAt"]
                 ).date()
