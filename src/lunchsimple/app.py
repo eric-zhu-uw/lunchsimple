@@ -722,6 +722,12 @@ def sync(
                         f"{'' if wealthsimple_activity['amountSign'] == 'positive' else '-'}"
                         + wealthsimple_activity["amount"]
                     )
+                # Added this stupid check since it's not clear if WS changed their API st
+                # the amount is now signed or unsigned. Scared to just remove the check for backwards
+                # compatibility reasons so it's safer to just check for "--" and then remove one of the "-"
+                if amount[:2] == "--":
+                    amount = amount[1:]
+
                 date = datetime.fromisoformat(
                     wealthsimple_activity["occurredAt"]
                 ).date()
